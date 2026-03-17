@@ -2,6 +2,8 @@
 
 import os
 import shutil
+import subprocess
+import threading
 import zipfile
 import tkinter as tk
 from tkinter import messagebox
@@ -148,6 +150,29 @@ def remove_skill(info: SkillInfo) -> None:
         os.remove(info.path)
 
 
+def install_skill(source: str) -> None:
+    """Install a skill from a local path or git URL."""
+    is_git = (
+        source.startswith("http://")
+        or source.startswith("https://")
+        or source.startswith("git@")
+        or source.endswith(".git")
+    )
+
+    if is_git:
+        repo_name = source.rstrip("/").split("/")[-1].removesuffix(".git")
+        dest = SKILLS_DIR / repo_name
+        subprocess.run(["git", "clone", source, str(dest)], check=True, capture_output=True)
+    else:
+        src = Path(source).expanduser().resolve()
+        if src.is_dir():
+            shutil.copytree(src, SKILLS_DIR / src.name)
+        elif src.is_file() and src.suffix in (".skill", ".md"):
+            shutil.copy2(src, SKILLS_DIR / src.name)
+        else:
+            raise ValueError(f"Unsupported path: '{source}'. Must be a directory or a .skill/.md file.")
+
+
 class SkillManagerApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -157,6 +182,7 @@ class SkillManagerApp:
         self.root.configure(bg="#f5f5f5")
 
         self._build_header()
+        self._build_install_bar()
         self._build_scroll_area()
         self._build_status_bar()
 
@@ -188,6 +214,86 @@ class SkillManagerApp:
         )
         refresh_btn.pack(side=tk.RIGHT, padx=10)
         refresh_btn.bind("<Button-1>", lambda e: self.refresh())
+
+    def _build_install_bar(self):
+        bar = tk.Frame(self.root, bg="#3a3a3a", pady=6, padx=10)
+        bar.pack(fill=tk.X)
+
+        PLACEHOLDER = "Enter local path or git URL..."
+
+        self.install_entry = tk.Entry(
+            bar,
+            font=("Helvetica", 11),
+            fg="#aaaaaa",
+            bg="#ffffff",
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground="#555555",
+            highlightcolor="#1a6fcc",
+        )
+        self.install_entry.insert(0, PLACEHOLDER)
+        self.install_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5, padx=(0, 8))
+
+        def _on_focus_in(e):
+            if self.install_entry.get() == PLACEHOLDER:
+                self.install_entry.delete(0, tk.END)
+                self.install_entry.config(fg="#1a1a1a")
+
+        def _on_focus_out(e):
+            if not self.install_entry.get():
+                self.install_entry.insert(0, PLACEHOLDER)
+                self.install_entry.config(fg="#aaaaaa")
+
+        self.install_entry.bind("<FocusIn>", _on_focus_in)
+        self.install_entry.bind("<FocusOut>", _on_focus_out)
+        self.install_entry.bind("<Return>", lambda e: self._on_install())
+
+        self.install_btn = tk.Label(
+            bar,
+            text="Install",
+            bg="#2d8a4e",
+            fg="white",
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            font=("Helvetica", 11),
+        )
+        self.install_btn.pack(side=tk.RIGHT)
+        self.install_btn.bind("<Button-1>", lambda e: self._on_install())
+
+    def _on_install(self):
+        PLACEHOLDER = "Enter local path or git URL..."
+        text = self.install_entry.get().strip()
+        if not text or text == PLACEHOLDER:
+            messagebox.showwarning("Install Skill", "Please enter a local path or git URL.")
+            return
+
+        self.install_btn.config(text="Installing...", bg="#1a5c34", cursor="watch")
+        self.install_btn.unbind("<Button-1>")
+
+        def _do_install():
+            try:
+                install_skill(text)
+                self.root.after(0, _on_success)
+            except Exception as exc:
+                self.root.after(0, lambda: _on_error(exc))
+
+        def _on_success():
+            self.install_entry.delete(0, tk.END)
+            self.install_entry.insert(0, PLACEHOLDER)
+            self.install_entry.config(fg="#aaaaaa")
+            self.install_btn.config(text="Installed!", bg="#2d8a4e", cursor="hand2")
+            self.install_btn.bind("<Button-1>", lambda e: self._on_install())
+            self.refresh()
+            self.root.after(2000, lambda: self.install_btn.config(text="Install"))
+
+        def _on_error(exc):
+            self.install_btn.config(text="Install", bg="#2d8a4e", cursor="hand2")
+            self.install_btn.bind("<Button-1>", lambda e: self._on_install())
+            messagebox.showerror("Install Failed", str(exc))
+
+        threading.Thread(target=_do_install, daemon=True).start()
 
     def _build_scroll_area(self):
         container = tk.Frame(self.root, bg="#f5f5f5")
