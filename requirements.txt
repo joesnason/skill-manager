@@ -1,0 +1,3 @@
+# No third-party dependencies.
+# skill_manager.py uses Python standard library only:
+#   tkinter, pathlib, shutil, os, subprocess, threading, zipfile, dataclasses
