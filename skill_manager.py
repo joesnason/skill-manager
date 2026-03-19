@@ -152,6 +152,11 @@ def remove_skill(info: SkillInfo) -> None:
 
 def install_skill(source: str) -> None:
     """Install a skill from a local path or git URL."""
+    claude_dir = Path.home() / ".claude"
+    if not claude_dir.exists():
+        raise RuntimeError("~/.claude not found. Please install Claude Code first.")
+    SKILLS_DIR.mkdir(exist_ok=True)
+
     is_git = (
         source.startswith("http://")
         or source.startswith("https://")
